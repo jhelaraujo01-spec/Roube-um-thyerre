@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ScriptLab AI — Criador de scripts Roblox</title>
+<style>
+:root{color-scheme:dark;--bg:#0b1020;--panel:#121a2d;--line:#26334e;--text:#edf3ff;--muted:#9eacc7;--accent:#7c5cff;--green:#2dd4a7}
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at top right,#20204b 0,#0b1020 45%);font:15px system-ui,Arial;color:var(--text)}
+header{padding:22px max(18px,calc((100% - 1100px)/2));border-bottom:1px solid var(--line);background:#0b1020cc}
+.logo{font-size:23px;font-weight:800}.logo span{color:var(--green)}header p{margin:5px 0 0;color:var(--muted)}
+main{max-width:1100px;margin:24px auto;padding:0 16px;display:grid;grid-template-columns:330px 1fr;gap:18px}
+.panel{background:#121a2df2;border:1px solid var(--line);border-radius:16px;padding:18px;min-width:0}
+h2{font-size:17px;margin:0 0 14px}label{display:block;color:#c7d2e8;font-size:13px;margin:13px 0 6px}
+input,select,textarea{width:100%;background:#0b1222;border:1px solid #31415f;border-radius:9px;color:var(--text);padding:11px;font:inherit}
+textarea{resize:vertical;min-height:130px}button{border:0;border-radius:9px;padding:11px 13px;font-weight:750;cursor:pointer;color:white;background:var(--accent)}
+button:hover{filter:brightness(1.12)}button.secondary{background:#24314a;border:1px solid #3a4a69}button.green{background:#13896f}
+.row{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}.row button{flex:1}
+.note{font-size:12px;line-height:1.5;color:var(--muted);margin-top:12px}
+.output-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px;flex-wrap:wrap}
+pre{margin:0;background:#080d18;border:1px solid #26334e;border-radius:10px;padding:16px;min-height:300px;max-height:520px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;color:#c9f7e8;font:13px/1.6 ui-monospace,SFMono-Regular,Consolas,monospace}
+.status{font-size:12px;color:var(--green);min-height:18px;margin-top:8px}
+.tag{display:inline-block;background:#1d2941;color:#c7d2e8;border-radius:6px;padding:4px 7px;font-size:11px}
+@media(max-width:760px){main{grid-template-columns:1fr;margin:14px auto}.panel{padding:15px}pre{min-height:240px}}
+</style>
+</head>
+<body>
+<header><div class="logo">⚡ ScriptLab <span>AI</span></div><p>Monte scripts Luau para Roblox Studio — direto no navegador.</p></header>
+<main>
+<section class="panel">
+<h2>🧠 Criar script</h2>
+<label for="tipo">O que você quer criar?</label>
+<select id="tipo">
+<option value="coin">Moeda coletável (+1 moeda)</option>
+<option value="leaderstats">Placar de moedas (leaderstats)</option>
+<option value="speed">Comando para mudar velocidade</option>
+<option value="jump">Pulo mais alto</option>
+<option value="door">Porta que abre ao tocar</option>
+<option value="damage">Peça que causa dano</option>
+<option value="heal">Peça que cura o jogador</option>
+<option value="tool">Ferramenta que dá moedas ao usar</option>
+<option value="custom">Pedido personalizado (modelo)</option>
+</select>
+<label for="nome">Nome / detalhes (opcional)</label>
+<input id="nome" placeholder="Ex.: moeda azul, velocidade 32">
+<label for="local">Onde vai usar?</label>
+<select id="local"><option>ServerScriptService</option><option>Workspace (Script dentro da peça)</option><option>StarterPlayerScripts (LocalScript)</option><option>StarterGui (LocalScript)</option></select>
+<label for="pedido">Descreva o comportamento</label>
+<textarea id="pedido" placeholder="Ex.: quando o jogador tocar na peça, ela desaparece e recebe 5 moedas."></textarea>
+<div class="row"><button id="gerar">Gerar script</button><button class="secondary" id="limpar">Limpar</button></div>
+<p class="note">Esta versão funciona offline e gera modelos prontos por regras — não é um modelo de IA conectado à internet. Para pedidos personalizados, ela cria um esqueleto com comentários para você completar.</p>
+</section>
+<section class="panel">
+<div class="output-head"><h2>📄 Seu código Luau</h2><span class="tag">Roblox Studio</span></div>
+<pre id="codigo">-- Escolha um tipo de script e toque em “Gerar script”.
+-- Depois, copie o código para o local indicado no Roblox Studio.</pre>
+<div class="row"><button class="green" id="copiar">Copiar código</button><button class="secondary" id="baixar">Baixar .lua</button></div>
+<div class="status" id="status" aria-live="polite"></div>
+<p class="note"><b>Importante:</b> teste no Roblox Studio usando “Play”. Scripts de servidor devem ficar em ServerScriptService ou dentro da peça indicada. Não use scripts para explorar jogos de outras pessoas, roubar contas ou burlar sistemas.</p>
+</section>
+</main>
+<script>
+const $=id=>document.getElementById(id);
+function makeScript(type,name,place,request){
+ const n=name.trim()||"MinhaPeça";
+ const header=`-- Gerado pelo ScriptLab AI\n-- Local sugerido: ${place}\n\n`;
+ const scripts={
+ coin:`-- Coloque este Script dentro de uma peça de moeda no Workspace.\nlocal moeda = script.Parent\nlocal coletada = false\n\nmoeda.Touched:Connect(function(hit)\n    if coletada then return end\n    local character = hit.Parent\n    local humanoid = character and character:FindFirstChildOfClass("Humanoid")\n    local player = character and game.Players:GetPlayerFromCharacter(character)\n    if not humanoid or not player then return end\n    coletada = true\n    local stats = player:FindFirstChild("leaderstats")\n    local moedas = stats and stats:FindFirstChild("Moedas")\n    if moedas then moedas.Value += 1 end\n    moeda.Transparency = 1\n    moeda.CanTouch = false\n    moeda.CanCollide = false\n    task.wait(3)\n    moeda:Destroy()\nend)`,
+ leaderstats:`-- Coloque este Script em ServerScriptService.\ngame.Players.PlayerAdded:Connect(function(player)\n    local leaderstats = Instance.new("Folder")\n    leaderstats.Name = "leaderstats"\n    leaderstats.Parent = player\n\n    local moedas = Instance.new("IntValue")\n    moedas.Name = "Moedas"\n    moedas.Value = 0\n    moedas.Parent = leaderstats\nend)`,
+ speed:`-- Coloque em ServerScriptService. Exemplo simples: define velocidade ao nascer.\nlocal VELOCIDADE = 32 -- padrão Roblox é 16\n\ngame.Players.PlayerAdded:Connect(function(player)\n    player.CharacterAdded:Connect(function(character)\n        local humanoid = character:WaitForChild("Humanoid")\n        humanoid.WalkSpeed = VELOCIDADE\n    end)\nend)`,
+ jump:`-- Coloque em ServerScriptService.\nlocal ALTURA_PULO = 80\n\ngame.Players.PlayerAdded:Connect(function(player)\n    player.CharacterAdded:Connect(function(character)\n        local humanoid = character:WaitForChild("Humanoid")\n        humanoid.UseJumpPower = true\n        humanoid.JumpPower = ALTURA_PULO\n    end)\nend)`,
+ door:`-- Coloque este Script dentro da peça que será a porta.\nlocal porta = script.Parent\nlocal aberta = false\nlocal debounce = false\nlocal posicaoFechada = porta.CFrame\n\nporta.Touched:Connect(function(hit)\n    if debounce then return end\n    if not hit.Parent:FindFirstChildOfClass("Humanoid") then return end\n    debounce = true\n    aberta = not aberta\n    porta.CanCollide = not aberta\n    porta.Transparency = aberta and 0.6 or 0\n    porta.CFrame = aberta and (posicaoFechada * CFrame.new(0, 8, 0)) or posicaoFechada\n    task.wait(1)\n    debounce = false\nend)`,
+ damage:`-- Coloque este Script dentro da peça perigosa.\nlocal peça = script.Parent\nlocal dano = 20\nlocal intervalo = 1\nlocal ultimoToque = {}\n\npeça.Touched:Connect(function(hit)\n    local character = hit.Parent\n    local humanoid = character and character:FindFirstChildOfClass("Humanoid")\n    if not humanoid or humanoid.Health <= 0 then return end\n    if ultimoToque[humanoid] then return end\n    ultimoToque[humanoid] = true\n    humanoid:TakeDamage(dano)\n    task.delay(intervalo, function() ultimoToque[humanoid] = nil end)\nend)`,
+ heal:`-- Coloque este Script dentro da peça de cura.\nlocal peça = script.Parent\nlocal cura = 25\nlocal cooldown = {}\n\npeça.Touched:Connect(function(hit)\n    local character = hit.Parent\n    local humanoid = character and character:FindFirstChildOfClass("Humanoid")\n    if not humanoid or cooldown[humanoid] then return end\n    cooldown[humanoid] = true\n    humanoid.Health = math.min(humanoid.MaxHealth, humanoid.Health + cura)\n    task.delay(2, function() cooldown[humanoid] = nil end)\nend)`,
+ tool:`-- Exemplo para um Tool com uma peça Handle dentro.\n-- Coloque este Script dentro do Tool e crie leaderstats com Moedas.\nlocal tool = script.Parent\nlocal debounce = false\n\ntool.Activated:Connect(function()\n    if debounce then return end\n    debounce = true\n    local character = tool.Parent\n    local player = game.Players:GetPlayerFromCharacter(character)\n    local stats = player and player:FindFirstChild("leaderstats")\n    local moedas = stats and stats:FindFirstChild("Moedas")\n    if moedas then moedas.Value += 1 end\n    task.wait(1)\n    debounce = false\nend)`
+ };
+ if(type==="custom") return header+`-- MODELO PARA PEDIDO PERSONALIZADO\n-- Pedido: ${request.replace(/\n/g," ").replace(/--/g,"—")||"Descreva o que o script deve fazer."}\n-- Este é um ponto de partida, não uma solução automática completa.\n\nlocal Workspace = game:GetService("Workspace")\nlocal Players = game:GetService("Players")\n\n-- TODO: descreva aqui a lógica desejada.\n-- Dica: use Players.PlayerAdded para eventos de jogador,\n-- ProximityPrompt para interações e RemoteEvent para comunicação cliente/servidor.\n\n`;
+ return header+(scripts[type]||scripts.coin);
+}
+$("gerar").addEventListener("click",()=>{$("codigo").textContent=makeScript($("tipo").value,$("nome").value,$("local").value,$("pedido").value);$("status").textContent="Script gerado! Revise e teste no Roblox Studio."});
+$("limpar").addEventListener("click",()=>{$("nome").value="";$("pedido").value="";$("codigo").textContent="-- Escolha um tipo de script e toque em “Gerar script”."; $("status").textContent=""});
+$("copiar").addEventListener("click",async()=>{try{await navigator.clipboard.writeText($("codigo").textContent);$("status").textContent="Código copiado!"}catch(e){$("status").textContent="Não foi possível copiar automaticamente. Selecione o código e copie manualmente."}});
+$("baixar").addEventListener("click",()=>{const blob=new Blob([$("codigo").textContent],{type:"text/plain;charset=utf-8"});const url=URL.createObjectURL(blob);const a=document.createElement("a");a.href=url;a.download="script-roblox.lua";a.click();URL.revokeObjectURL(url);$("status").textContent="Download iniciado."});
+</script>
+</body>
+</html>

@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="pt-BR"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<title>Roube um Thyerre</title>
+<style>
+html,body{margin:0;height:100%;overflow:hidden;font-family:system-ui,sans-serif;background:#111;touch-action:none}
+#lobby{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;background:linear-gradient(#1e3c72,#2a5298);color:#fff;z-index:5}
+#lobby h1{margin:0;font-size:2.2rem;text-align:center}
+#lobby input{padding:12px;font-size:1.1rem;border-radius:10px;border:0;text-align:center}
+#play{padding:14px 40px;font-size:1.3rem;font-weight:700;border:0;border-radius:12px;background:#f1c40f;cursor:pointer}
+#hud{position:fixed;top:8px;left:8px;color:#fff;font-size:14px;background:#0008;padding:8px 10px;border-radius:8px;display:none;z-index:4}
+#help{position:fixed;bottom:8px;left:0;right:0;text-align:center;color:#fff;font-size:13px;display:none;z-index:4;text-shadow:0 1px 2px #000}
+</style></head><body>
+<div id="lobby">
+  <h1>🏃 Roube um Thyerre</h1>
+  <input id="name" placeholder="Seu nome" maxlength="12">
+  <button id="play">Jogar</button>
+  <p id="status"></p>
+</div>
+<div id="hud"></div>
+<div id="help">WASD / setas (ou arraste o dedo) para andar · Encoste no Thyerre, leve até sua base e roube dos outros!</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+const THYERRE_IMG = 'thyerre.png'; // coloque aqui a imagem escolhida (opcional)
+const WS_URL = (location.protocol === 'https:' ? 'wss://' : 'ws://') + (location.host || 'localhost:3000');
+const $ = id => document.getElementById(id);
+
+// ---------- 3D ----------
+const scene = new THREE.Scene(); scene.background = new THREE.Color(0x87ceeb);
+const cam = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, .1, 200);
+const ren = new THREE.WebGLRenderer({ antialias: true });
+ren.setSize(innerWidth, innerHeight); document.body.appendChild(ren.domElement);
+addEventListener('resize', () => { ren.setSize(innerWidth, innerHeight); cam.aspect = innerWidth / innerHeight; cam.updateProjectionMatrix(); });
+scene.add(new THREE.HemisphereLight(0xffffff, 0x556655, 1));
+const sun = new THREE.DirectionalLight(0xffffff, .6); sun.position.set(10, 20, 5); scene.add(sun);
+const ground = new THREE.Mesh(new THREE.PlaneGeometry(50, 50), new THREE.MeshLambertMaterial({ color: 0x7ec850 }));
+ground.rotation.x = -Math.PI / 2; scene.add(ground);
+scene.add(new THREE.GridHelper(50, 25, 0x5a9a3a, 0x5a9a3a));
+
+function cartoonTex() {
+  const c = document.createElement('canvas'); c.width = c.height = 256; const g = c.getContext('2d');
+  g.fillStyle = '#8d5524'; g.beginPath(); g.arc(128, 128, 110, 0, 7); g.fill();
+  g.fillStyle = '#fff'; g.beginPath(); g.arc(90, 105, 24, 0, 7); g.arc(166, 105, 24, 0, 7); g.fill();
+  g.fillStyle = '#000'; g.beginPath(); g.arc(95, 108, 10, 0, 7); g.arc(161, 108, 10, 0, 7); g.fill();
+  g.lineWidth = 10; g.strokeStyle = '#000'; g.beginPath(); g.arc(128, 150, 50, .15 * Math.PI, .85 * Math.PI); g.stroke();
+  return new THREE.CanvasTexture(c);
+}
+const thMat = new THREE.SpriteMaterial({ map: cartoonTex() });
+new THREE.TextureLoader().load(THYERRE_IMG, t => { thMat.map = t; thMat.needsUpdate = true; }, undefined, () => {});
+const thyerre = new THREE.Group();
+const thBody = new THREE.Mesh(new THREE.BoxGeometry(1, 1.2, .6), new THREE.MeshLambertMaterial({ color: 0xff8c42 }));
+thBody.position.y = .6; const thHead = new THREE.Sprite(thMat); thHead.scale.set(1.8, 1.8, 1); thHead.position.y = 2;
+thyerre.add(thBody, thHead); scene.add(thyerre);
+
+function label(text) {
+  const c = document.createElement('canvas'); c.width = 256; c.height = 64; const g = c.getContext('2d');
+  g.font = 'bold 34px sans-serif'; g.textAlign = 'center'; g.lineWidth = 6; g.strokeStyle = '#000'; g.fillStyle = '#fff';
+  g.strokeText(text, 128, 44); g.fillText(text, 128, 44);
+  return new THREE.CanvasTexture(c);
+}
+const others = new Map(); let myId = null, ws = null;
+const me = { x: 0, z: 0, ry: 0, ready: false };
+
+function makePlayer(p) {
+  const g = new THREE.Group();
+  const body = new THREE.Mesh(new THREE.CylinderGeometry(.5, .5, 1.2, 12), new THREE.MeshLambertMaterial({ color: p.c }));
+  body.position.y = .6;
+  const head = new THREE.Mesh(new THREE.SphereGeometry(.45, 12, 12), new THREE.MeshLambertMaterial({ color: 0xffd1a1 }));
+  head.position.y = 1.6;
+  const tag = new THREE.Sprite(new THREE.SpriteMaterial({ map: label(p.n + ' ' + p.s) })); tag.scale.set(3, .75, 1); tag.position.y = 2.6;
+  g.add(body, head, tag); scene.add(g);
+  const base = new THREE.Mesh(new THREE.RingGeometry(2, 3, 32), new THREE.MeshBasicMaterial({ color: p.c, side: THREE.DoubleSide }));
+  base.rotation.x = -Math.PI / 2; base.position.set(p.b[0], .02, p.b[1]); scene.add(base);
+  return { g, tag, score: p.s, name: p.n, base, tx: p.x, tz: p.z, tr: p.ry };
+}
+
+// ---------- Input ----------
+const keys = {}; let joy = null;
+addEventListener('keydown', e => keys[e.key.toLowerCase()] = true);
+addEventListener('keyup', e => keys[e.key.toLowerCase()] = false);
+addEventListener('pointerdown', e => { if (e.pointerType !== 'mouse') joy = { sx: e.clientX, sy: e.clientY, dx: 0, dy: 0 }; });
+addEventListener('pointermove', e => { if (joy) { joy.dx = e.clientX - joy.sx; joy.dy = e.clientY - joy.sy; } });
+addEventListener('pointerup', () => joy = null);
+
+// ---------- Rede ----------
+$('play').onclick = () => {
+  const name = $('name').value.trim() || 'Jogador';
+  $('status').textContent = 'Conectando...';
+  ws = new WebSocket(WS_URL);
+  ws.onopen = () => ws.send(JSON.stringify({ t: 'join', name }));
+  ws.onerror = () => $('status').textContent = 'Não foi possível conectar ao servidor.';
+  ws.onclose = () => { if (me.ready) { me.ready = false; $('lobby').style.display = 'flex'; $('status').textContent = 'Desconectado.'; } };
+  ws.onmessage = ev => {
+    const d = JSON.parse(ev.data);
+    if (d.t === 'init') { myId = d.id; }
+    else if (d.t === 'state') onState(d);
+  };
+};
+
+function onState(d) {
+  const seen = new Set();
+  for (const p of d.p) {
+    seen.add(p.id);
+    let o = others.get(p.id);
+    if (!o) { o = makePlayer(p); others.set(p.id, o); o.g.position.set(p.x, 0, p.z); }
+    o.tx = p.x; o.tz = p.z; o.tr = p.ry;
+    if (o.score !== p.s) { o.score = p.s; o.tag.material.map = label(p.n + ' ' + p.s); }
+    if (p.id === myId && !me.ready) {
+      me.x = p.x; me.z = p.z; me.ready = true;
+      $('lobby').style.display = 'none'; $('hud').style.display = 'block'; $('help').style.display = 'block';
+    }
+  }
+  for (const [id, o] of others) if (!seen.has(id)) { scene.remove(o.g, o.base); others.delete(id); }
+  thyerre.userData = d.th;
+  $('hud').innerHTML = '<b>Placar</b><br>' + d.p.slice().sort((a, b) => b.s - a.s)
+    .map(p => (p.id === myId ? '▶ ' : '') + p.n + ': ' + p.s).join('<br>');
+}
+
+// ---------- Loop ----------
+let last = performance.now(), sent = 0;
+function loop(now) {
+  requestAnimationFrame(loop);
+  const dt = Math.min(.05, (now - last) / 1000); last = now;
+  if (me.ready) {
+    let ix = (keys.d || keys.arrowright ? 1 : 0) - (keys.a || keys.arrowleft ? 1 : 0);
+    let iz = (keys.s || keys.arrowdown ? 1 : 0) - (keys.w || keys.arrowup ? 1 : 0);
+    if (joy) { ix += Math.max(-1, Math.min(1, joy.dx / 50)); iz += Math.max(-1, Math.min(1, joy.dy / 50)); }
+    const len = Math.hypot(ix, iz);
+    if (len > .05) {
+      ix /= Math.max(1, len); iz /= Math.max(1, len);
+      me.x = Math.max(-24, Math.min(24, me.x + ix * 8 * dt));
+      me.z = Math.max(-24, Math.min(24, me.z + iz * 8 * dt));
+      me.ry = Math.atan2(ix, iz);
+    }
+    if (now - sent > 50 && ws.readyState === 1) { sent = now; ws.send(JSON.stringify({ t: 'move', x: me.x, z: me.z, ry: me.ry })); }
+    cam.position.lerp(new THREE.Vector3(me.x, 16, me.z + 14), .1); cam.lookAt(me.x, 0, me.z);
+  }
+  for (const [id, o] of others) {
+    if (id === myId) { o.g.position.set(me.x, 0, me.z); o.g.rotation.y = me.ry; }
+    else { o.g.position.x += (o.tx - o.g.position.x) * .3; o.g.position.z += (o.tz - o.g.position.z) * .3; o.g.rotation.y = o.tr; }
+  }
+  const th = thyerre.userData;
+  if (th && th.x !== undefined) {
+    thyerre.position.set(th.x, th.h ? 1.6 : 0, th.z); thyerre.scale.setScalar(th.h ? .6 : 1);
+    thyerre.rotation.y += dt * (th.h ? 0 : 2);
+  }
+  ren.render(scene, cam);
+}
+requestAnimationFrame(loop);
+</script></body></html>
